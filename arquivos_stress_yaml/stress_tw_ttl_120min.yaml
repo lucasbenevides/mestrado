@@ -1,0 +1,65 @@
+#
+# Keyspace name and create CQL
+#
+keyspace: lucasdb
+keyspace_definition: |
+  CREATE KEYSPACE lucasdb WITH replication = {'class': 'SimpleStrategy', 'replication_factor' : 3};
+#
+# Table name and create CQL
+#
+table: tw_ttl_2h_120min
+table_definition: |
+  CREATE TABLE tw_ttl_2h_120min(
+  device_id uuid,
+  service_name text,
+  observation_time timestamp,
+  device_name text STATIC,
+  observed_value float,
+  PRIMARY KEY (device_id, service_name, observation_time)
+  ) WITH CLUSTERING ORDER BY ( service_name ASC, observation_time DESC ) AND compression = {'enabled':'false'} AND default_time_to_live = 7200 AND gc_grace_seconds = 3600  AND compaction= {'compaction_window_size': '120', 'compaction_window_unit': 'MINUTES', 'class': 'org.apache.cassandra.db.compaction.TimeWindowCompactionStrategy','log_all':true};
+
+
+#
+# Meta information for generating data
+#
+columnspec:
+  - name: device_id
+    size: fixed(32) #In chars, no. of chars of UUID
+    population: GAUSSIAN(1..100000)  
+  - name: service_name
+    size: fixed(8)
+    population: uniform(1..5)
+    cluster: fixed(5)
+# isso acima tem que ser bem modulado    
+  - name: observation_time
+    cluster: fixed(10)
+    population: uniform(1..10000000) 
+# isso acima tem que ser bem modulado    
+  - name: device_name
+    size: fixed(10)
+    population: seq(1..100) 
+  - name: observed_value
+    size: fixed(4)
+    population: GAUSSIAN(1..40,25,9)
+
+# Specs for insert queries
+#
+insert:
+  partitions: fixed(1)      # 1 partition per batch
+  batchtype: UNLOGGED       # use unlogged batches
+  select: fixed(1)/1      # no chance of skipping a row when generating inserts
+ 
+#
+# Read queries to run against the schema
+#
+queries:
+   pull-for-rollup:
+      cql: select * from tw_ttl_2h_120min where device_id = ?
+      fields: samerow             # pick selection values from same row in partition
+   get-a-value:
+      cql: select * from tw_ttl_2h_120min where device_id = ? and service_name = ? and observation_time = ?
+      fields: samerow             # pick selection values from same row in partition
+   get-avg:
+      cql: select device_id, avg(observed_value) FROM tw_ttl_2h_120min where device_id = ?
+      fields: samerow
+
